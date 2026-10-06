@@ -1,6 +1,6 @@
 package ee.yvonne.bank.ledger;
 
-public enum TransactionType {
+public enum EntryType {
     DEBIT, 
     CREDIT
 }

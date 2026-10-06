@@ -22,13 +22,13 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "account_transaction", indexes = {
-        @Index(name = "idx_tx_account_created", columnList = "account_id, created_at"),
-        @Index(name = "idx_tx_correlation", columnList = "correlation_id")
+@Table(name = "ledger_entry", indexes = {
+        @Index(name = "idx_ledger_account_created", columnList = "account_id, created_at"),
+        @Index(name = "idx_ledger_correlation", columnList = "correlation_id")
 })
 @Getter
 @NoArgsConstructor(access = lombok.AccessLevel.PROTECTED)
-public class AccountTransaction {
+public class LedgerEntry {
     @Id 
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -40,10 +40,7 @@ public class AccountTransaction {
     private Currency currency;
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, updatable = false)
-    private TransactionType type;
-    @Enumerated(EnumType.STRING) 
-    @Column(nullable = false, updatable = false)
-    private TransactionReason reason;
+    private EntryType type;
     @Column(nullable = false, updatable = false, precision = 19, scale = 2)
     private BigDecimal amount;
     @Column(nullable = false, updatable = false, precision = 19, scale = 2)
@@ -53,13 +50,10 @@ public class AccountTransaction {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    public AccountTransaction(Account account, Currency currency, TransactionType type,
-        TransactionReason reason, BigDecimal amount, BigDecimal newBalance,
-        UUID correlationId) {
+    public LedgerEntry(Account account, Currency currency, EntryType type, BigDecimal amount, BigDecimal newBalance, UUID correlationId) {
         this.account = account;
         this.currency = currency;
         this.type = type;
-        this.reason = reason;
         this.amount = amount;
         this.newBalance = newBalance;
         this.correlationId = correlationId;
