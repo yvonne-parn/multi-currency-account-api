@@ -15,4 +15,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     ProblemDetail handleInsufficientFunds(InsufficientFundsException ex) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, ex.getMessage());
     }
+
+    @ExceptionHandler(AccountNotFoundException.class)
+    ProblemDetail handleAccountNotFound(AccountNotFoundException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
 }

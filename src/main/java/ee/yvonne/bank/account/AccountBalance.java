@@ -44,7 +44,7 @@ public class AccountBalance {
     public AccountBalance(Account account, Currency currency) {
         this.account = account;
         this.currency = currency;
-        this.balance = BigDecimal.ZERO;
+        this.balance = BigDecimal.ZERO.setScale(2);
         this.updatedAt = Instant.now();
     }
 
