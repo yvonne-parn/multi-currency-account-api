@@ -1,7 +1,18 @@
 package ee.yvonne.bank.account;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.math.BigDecimal;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -18,19 +29,8 @@ import ee.yvonne.bank.account.dto.AccountBalancesResult;
 import ee.yvonne.bank.account.dto.CurrencyBalance;
 import ee.yvonne.bank.common.AccountNotFoundException;
 import ee.yvonne.bank.common.Currency;
-
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-
-import java.math.BigDecimal;
-import java.util.List;
-
-import static org.mockito.Mockito.when;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.ArgumentMatchers.eq;
+import ee.yvonne.bank.common.ExternalSystemException;
+import ee.yvonne.bank.common.InsufficientFundsException;
 
 @WebMvcTest(AccountController.class)
 class AccountControllerTests {
@@ -142,5 +142,69 @@ class AccountControllerTests {
         deposit("{\"amount\": 100000000000000000, \"currency\": \"EUR\"}")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.amount").exists());
+    }
+
+    private ResultActions debit(String json) throws Exception {
+        return mockMvc.perform(post("/accounts/TEST-1/debit")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"10.555", "0.001"})
+    void debitWithMoreThanTwoDecimalsReturnsFieldError(String amount) throws Exception {
+        debit("{\"amount\": " + amount + ", \"currency\": \"EUR\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.amount").exists());
+
+        verifyNoInteractions(accountService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"10", "10.5", "10.50"})
+    void debitWithUpToTwoDecimalsIsAccepted(String amount) throws Exception {
+        when(accountService.debit(any(), any(), any())).thenReturn(new AccountBalanceResult("TEST-1", Currency.EUR, new BigDecimal("50.50")));
+
+        debit("{\"amount\": " + amount + ", \"currency\": \"EUR\"}").andExpect(status().isOk())
+            .andExpect(jsonPath("$.accountNumber").value("TEST-1"))
+            .andExpect(jsonPath("$.currency").value("EUR"))
+            .andExpect(jsonPath("$.balance").value(50.50));
+
+        verify(accountService).debit(
+            eq("TEST-1"),
+            eq(Currency.EUR),
+            argThat(a -> a.compareTo(new BigDecimal(amount)) == 0));
+    }
+
+    @Test
+    void debitToUnknownAccountReturns404WithMessage() throws Exception {
+        when(accountService.debit(any(), any(), any()))
+            .thenThrow(new AccountNotFoundException("TEST-1"));
+
+        debit("{\"amount\": 10, \"currency\": \"EUR\"}")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.detail").value("Account not found: TEST-1"));
+    }
+
+    @Test
+    void debitFromInsufficientFundsReturns422WithMessage() throws Exception {
+        when(accountService.debit(any(), any(), any()))
+            .thenThrow(new InsufficientFundsException("TEST-1", Currency.EUR));
+
+        debit("{\"amount\": 10, \"currency\": \"EUR\"}")
+                .andExpect(status().isUnprocessableContent())
+                .andExpect(jsonPath("$.detail").value("Insufficient EUR balance on account TEST-1"));
+    }
+
+    @Test
+    void debitWithExternalSystemFailureReturns502WithoutLeakingDetails() throws Exception {
+        when(accountService.debit(any(), any(), any()))
+            .thenThrow(new ExternalSystemException(
+                "Connection refused: https://internal.example.com/log",
+                    new RuntimeException("socket timeout")));
+
+        debit("{\"amount\": 10, \"currency\": \"EUR\"}")
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.detail").value("External system unavailable, debit not executed"));
     }
 }
