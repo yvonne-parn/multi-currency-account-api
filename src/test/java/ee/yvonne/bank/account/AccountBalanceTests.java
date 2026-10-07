@@ -75,7 +75,10 @@ class AccountBalanceTests {
     void debit_throws_whenInsufficientFunds() {
         balance.credit(new BigDecimal("10.00"));
 
-        assertThatThrownBy(() -> balance.debit(new BigDecimal("10.01"))).isInstanceOf(InsufficientFundsException.class);
+        assertThatThrownBy(() -> balance.debit(new BigDecimal("10.01")))
+            .isInstanceOf(InsufficientFundsException.class)
+            .hasMessageContaining("EUR")
+            .hasMessageContaining("TEST-0001");
         assertThat(balance.getBalance()).isEqualByComparingTo("10.00");
     }
 

@@ -17,15 +17,15 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "account_balance", uniqueConstraints = {
-        @jakarta.persistence.UniqueConstraint(columnNames = {"account_id", "currency"})
-})
+@Table(name = "account_balance", uniqueConstraints = {@UniqueConstraint(columnNames = {"account_id", "currency"})})
 @Getter
-@NoArgsConstructor(access = lombok.AccessLevel.PROTECTED)
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class AccountBalance {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -51,7 +51,7 @@ public class AccountBalance {
     public void debit(BigDecimal amount) {
         requirePositive(amount);
         if (balance.compareTo(amount) < 0) {
-            throw new InsufficientFundsException("Insufficient " + currency + " balance");
+            throw new InsufficientFundsException(account.getAccountNumber(), currency);
         }
         balance = balance.subtract(amount);
         updatedAt = Instant.now();
