@@ -19,7 +19,7 @@ import ee.yvonne.bank.external.ExternalLoggingClient;
 import ee.yvonne.bank.ledger.LedgerEntry;
 import ee.yvonne.bank.ledger.LedgerEntryRepository;
 
-@SpringBootTest
+@SpringBootTest(properties = { "exchange.rates.EUR=1.0", "exchange.rates.USD=1.12", "exchange.rates.SEK=11.25", "exchange.rates.GBP=0.85" })
 class AccountServiceConcurrencyTests {
     @Autowired AccountService accountService;
     @Autowired AccountRepository accountRepository;
@@ -42,7 +42,7 @@ class AccountServiceConcurrencyTests {
         assertThat(rows).hasSize(1);
         assertThat(rows.get(0).getBalance()).isEqualByComparingTo("20.00");
 
-        List<LedgerEntry> entries = ledgerRepository.findByAccountIdOrderByCreatedAtAsc(account.getId());
+        List<LedgerEntry> entries = ledgerRepository.findByAccountIdOrderByIdAsc(account.getId());
         List<Integer> runningBalances = entries.stream().map(e -> e.getNewBalance().intValue()).sorted().toList();
 
         List<Integer> expected = IntStream.rangeClosed(1, 20).boxed().toList();
@@ -82,6 +82,37 @@ class AccountServiceConcurrencyTests {
         assertThat(rejected.get()).isEqualTo(20);
         assertThat(balanceRepository.findByAccountIdAndCurrency(account.getId(), Currency.EUR)
                 .orElseThrow().getBalance()).isEqualByComparingTo("0.00");
-        assertThat(ledgerRepository.findByAccountIdOrderByCreatedAtAsc(account.getId())).hasSize(11);
+        assertThat(ledgerRepository.findByAccountIdOrderByIdAsc(account.getId())).hasSize(11);
+    }
+
+    @Test 
+    void parallelExchangesKeepBalancesConsistent() {
+        Account account = newAccount();
+        accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("1000.00"));
+        accountService.deposit(account.getAccountNumber(), Currency.USD, new BigDecimal("1000.00"));
+
+        IntStream.range(0, 20).parallel().forEach(i -> {
+            if (i % 2 == 0) {
+                accountService.exchange(
+                    account.getAccountNumber(),
+                    Currency.EUR,
+                    Currency.USD,
+                    new BigDecimal("10.00")
+                );
+            } else {
+                accountService.exchange(
+                    account.getAccountNumber(),
+                    Currency.USD,
+                    Currency.EUR,
+                    new BigDecimal("1.00")
+                );
+            }
+        });
+
+        assertThat(balanceRepository.findByAccountIdAndCurrency(account.getId(), Currency.EUR)
+                .orElseThrow().getBalance()).isEqualByComparingTo("908.90");
+                assertThat(balanceRepository.findByAccountIdAndCurrency(account.getId(), Currency.USD)
+                .orElseThrow().getBalance()).isEqualByComparingTo("1102.00");
+        assertThat(ledgerRepository.findByAccountIdOrderByIdAsc(account.getId())).hasSize(42);
     }
 }
