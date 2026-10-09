@@ -147,6 +147,18 @@ class AccountControllerTests {
                 .andExpect(jsonPath("$.errors.amount").exists());
     }
 
+    @Test
+    void unexpectedErrorReturns500WithoutLeakingDetails() throws Exception {
+        when(accountService.deposit(any(), any(), any())).thenThrow(new RuntimeException("secret error message"));
+
+        String body = call("deposit", "{\"amount\": 10, \"currency\": \"EUR\"}")
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.detail").value("Unexpected error"))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).doesNotContain("secret");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"10.555", "0.001"})
     void debitWithMoreThanTwoDecimalsReturnsFieldError(String amount) throws Exception {
