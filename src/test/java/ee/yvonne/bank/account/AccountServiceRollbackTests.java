@@ -7,8 +7,8 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doThrow;
 
 import java.math.BigDecimal;
-import java.util.UUID;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -31,14 +31,16 @@ class AccountServiceRollbackTests {
     @Autowired AccountBalanceRepository balanceRepository;
     @MockitoSpyBean LedgerEntryRepository ledgerRepository;
     @MockitoBean ExternalLoggingClient externalLoggingClient;
+    private AccountTestData testData;
 
-    private Account newAccount() {
-        return accountRepository.save(new Account("TEST-" + UUID.randomUUID(), "Test Holder"));
+    @BeforeEach
+    void setUp() {
+        testData = new AccountTestData(accountRepository, balanceRepository, ledgerRepository, accountService);
     }
 
     @Test
     void ledgerFailureLeavesExistingBalanceUnchanged() {
-        Account account = newAccount();
+        Account account = testData.newAccount();
         accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("10.00"));
 
         doThrow(new DataAccessResourceFailureException("ledger down")).when(ledgerRepository).save(any(LedgerEntry.class));
@@ -46,26 +48,26 @@ class AccountServiceRollbackTests {
         assertThatThrownBy(() -> accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("5.00")))
                 .isInstanceOf(DataAccessResourceFailureException.class);
 
-        assertThat(balanceRepository.findByAccountIdAndCurrency(account.getId(), Currency.EUR).orElseThrow().getBalance()).isEqualByComparingTo("10.00");
-        assertThat(ledgerRepository.findByAccountIdOrderByIdAsc(account.getId())).hasSize(1);
+        assertThat(testData.balanceOf(account, Currency.EUR).orElseThrow().getBalance()).isEqualByComparingTo("10.00");
+        assertThat(testData.ledgerOf(account)).hasSize(1);
     }
 
     @Test
     void ledgerFailureOnFirstDepositCreatesNoBalanceRow() {
-        Account account = newAccount();
+        Account account = testData.newAccount();
 
         doThrow(new DataAccessResourceFailureException("ledger down")).when(ledgerRepository).save(any(LedgerEntry.class));
 
         assertThatThrownBy(() -> accountService.deposit(account.getAccountNumber(), Currency.USD, new BigDecimal("50.00")))
                 .isInstanceOf(DataAccessResourceFailureException.class);
 
-        assertThat(balanceRepository.findByAccountIdAndCurrency(account.getId(), Currency.USD)).isEmpty();
-        assertThat(ledgerRepository.findByAccountIdOrderByIdAsc(account.getId())).isEmpty();
+        assertThat(testData.balanceOf(account, Currency.USD)).isEmpty();
+        assertThat(testData.ledgerOf(account)).isEmpty();
     }
 
     @Test
     void ledgerFailureDuringDebitLeavesBalanceUnchanged() {
-        Account account = newAccount();
+        Account account = testData.newAccount();
         accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("100.00"));
 
         doThrow(new DataAccessResourceFailureException("ledger down")).when(ledgerRepository).save(any(LedgerEntry.class));
@@ -73,15 +75,15 @@ class AccountServiceRollbackTests {
         assertThatThrownBy(() -> accountService.debit(account.getAccountNumber(), Currency.EUR, new BigDecimal("30.00")))
                 .isInstanceOf(DataAccessResourceFailureException.class);
 
-        assertThat(balanceRepository.findByAccountIdAndCurrency(account.getId(), Currency.EUR)
+        assertThat(testData.balanceOf(account, Currency.EUR)
                 .orElseThrow().getBalance()).isEqualByComparingTo("100.00");
-        assertThat(ledgerRepository.findByAccountIdOrderByIdAsc(account.getId())).hasSize(1);
+        assertThat(testData.ledgerOf(account)).hasSize(1);
     }
 
     @ParameterizedTest
     @EnumSource(EntryType.class)
     void ledgerFailureDuringExchangeLeavesBalancesUnchanged(EntryType entryType) {
-        Account account = newAccount();
+        Account account = testData.newAccount();
         accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("100.00"));
 
         doThrow(new DataAccessResourceFailureException("ledger down"))
@@ -93,15 +95,15 @@ class AccountServiceRollbackTests {
         assertThatThrownBy(() -> accountService.exchange(account.getAccountNumber(), Currency.EUR, Currency.USD, new BigDecimal("10.00")))
                 .isInstanceOf(DataAccessResourceFailureException.class);
 
-        assertThat(balanceRepository.findByAccountIdAndCurrency(account.getId(), Currency.EUR)
+        assertThat(testData.balanceOf(account, Currency.EUR)
                 .orElseThrow().getBalance()).isEqualByComparingTo("100.00");
-        assertThat(balanceRepository.findByAccountIdAndCurrency(account.getId(), Currency.USD).isPresent()).isFalse();
-        assertThat(ledgerRepository.findByAccountIdOrderByIdAsc(account.getId())).hasSize(1);
+        assertThat(testData.balanceOf(account, Currency.USD).isPresent()).isFalse();
+        assertThat(testData.ledgerOf(account)).hasSize(1);
     }
 
     @Test
     void ledgerFailureDuringExchangeLeavesExistingTargetBalanceUnchanged() {
-        Account account = newAccount();
+        Account account = testData.newAccount();
         accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("100.00"));
         accountService.deposit(account.getAccountNumber(), Currency.USD, new BigDecimal("10.00"));
 
@@ -112,10 +114,10 @@ class AccountServiceRollbackTests {
         assertThatThrownBy(() -> accountService.exchange(account.getAccountNumber(), Currency.EUR, Currency.USD, new BigDecimal("10.00")))
                 .isInstanceOf(DataAccessResourceFailureException.class);
 
-        assertThat(balanceRepository.findByAccountIdAndCurrency(account.getId(), Currency.EUR)
+        assertThat(testData.balanceOf(account, Currency.EUR)
                 .orElseThrow().getBalance()).isEqualByComparingTo("100.00");
-        assertThat(balanceRepository.findByAccountIdAndCurrency(account.getId(), Currency.USD)
+        assertThat(testData.balanceOf(account, Currency.USD)
                 .orElseThrow().getBalance()).isEqualByComparingTo("10.00");
-        assertThat(ledgerRepository.findByAccountIdOrderByIdAsc(account.getId())).hasSize(2);
+        assertThat(testData.ledgerOf(account)).hasSize(2);
     }
 }

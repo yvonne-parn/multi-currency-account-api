@@ -4,10 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -26,14 +26,16 @@ class AccountServiceConcurrencyTests {
     @Autowired AccountBalanceRepository balanceRepository;
     @Autowired LedgerEntryRepository ledgerRepository;
     @MockitoBean ExternalLoggingClient externalLoggingClient;
+    private AccountTestData testData;
 
-    private Account newAccount() {
-        return accountRepository.save(new Account("TEST-" + UUID.randomUUID(), "Test Holder"));
+    @BeforeEach
+    void setUp() {
+        testData = new AccountTestData(accountRepository, balanceRepository, ledgerRepository, accountService);
     }
 
     @Test
     void parallelFirstDepositsInNewCurrencyCreateOneRowAndKeepConsistentRunningBalances() {
-        Account account = newAccount();
+        Account account = testData.newAccount();
 
         IntStream.range(0, 20).parallel().forEach(i ->
             accountService.deposit(account.getAccountNumber(), Currency.USD, new BigDecimal("1.00")));
@@ -42,7 +44,7 @@ class AccountServiceConcurrencyTests {
         assertThat(rows).hasSize(1);
         assertThat(rows.get(0).getBalance()).isEqualByComparingTo("20.00");
 
-        List<LedgerEntry> entries = ledgerRepository.findByAccountIdOrderByIdAsc(account.getId());
+        List<LedgerEntry> entries = testData.ledgerOf(account);
         List<Integer> runningBalances = entries.stream().map(e -> e.getNewBalance().intValue()).sorted().toList();
 
         List<Integer> expected = IntStream.rangeClosed(1, 20).boxed().toList();
@@ -52,18 +54,18 @@ class AccountServiceConcurrencyTests {
 
     @Test
     void parallelDepositsToExistingBalanceLoseNoUpdates() {
-        Account account = newAccount();
+        Account account = testData.newAccount();
         accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("100.00"));
 
         IntStream.range(0, 20).parallel().forEach(i ->
             accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("1.00")));
 
-        assertThat(balanceRepository.findByAccountIdAndCurrency(account.getId(), Currency.EUR).orElseThrow().getBalance()).isEqualByComparingTo("120.00");
+        assertThat(testData.balanceOf(account, Currency.EUR).orElseThrow().getBalance()).isEqualByComparingTo("120.00");
     }
 
     @Test
     void parallelDebitsNeverOverdrawTheBalance() {
-        Account account = newAccount();
+        Account account = testData.newAccount();
         accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("10.00"));
 
         AtomicInteger succeeded = new AtomicInteger();
@@ -80,14 +82,14 @@ class AccountServiceConcurrencyTests {
 
         assertThat(succeeded.get()).isEqualTo(10);
         assertThat(rejected.get()).isEqualTo(20);
-        assertThat(balanceRepository.findByAccountIdAndCurrency(account.getId(), Currency.EUR)
+        assertThat(testData.balanceOf(account, Currency.EUR)
                 .orElseThrow().getBalance()).isEqualByComparingTo("0.00");
-        assertThat(ledgerRepository.findByAccountIdOrderByIdAsc(account.getId())).hasSize(11);
+        assertThat(testData.ledgerOf(account)).hasSize(11);
     }
 
     @Test 
     void parallelExchangesKeepBalancesConsistent() {
-        Account account = newAccount();
+        Account account = testData.newAccount();
         accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("1000.00"));
         accountService.deposit(account.getAccountNumber(), Currency.USD, new BigDecimal("1000.00"));
 
@@ -109,10 +111,10 @@ class AccountServiceConcurrencyTests {
             }
         });
 
-        assertThat(balanceRepository.findByAccountIdAndCurrency(account.getId(), Currency.EUR)
+        assertThat(testData.balanceOf(account, Currency.EUR)
                 .orElseThrow().getBalance()).isEqualByComparingTo("908.90");
-                assertThat(balanceRepository.findByAccountIdAndCurrency(account.getId(), Currency.USD)
+        assertThat(testData.balanceOf(account, Currency.USD)
                 .orElseThrow().getBalance()).isEqualByComparingTo("1102.00");
-        assertThat(ledgerRepository.findByAccountIdOrderByIdAsc(account.getId())).hasSize(42);
+        assertThat(testData.ledgerOf(account)).hasSize(42);
     }
 }
