@@ -30,7 +30,7 @@ public class AccountController {
     }
 
     @PostMapping("/{accountNumber}/deposit")
-    public AccountBalanceResult addMoney(@PathVariable String accountNumber, @Valid @RequestBody DepositRequest request) { 
+    public AccountBalanceResult deposit(@PathVariable String accountNumber, @Valid @RequestBody DepositRequest request) { 
         return accountService.deposit(accountNumber, request.currency(), request.amount());
     }
 
