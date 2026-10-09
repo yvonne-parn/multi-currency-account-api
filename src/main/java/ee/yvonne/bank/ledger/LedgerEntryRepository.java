@@ -6,5 +6,5 @@ import org.springframework.data.repository.Repository;
 
 public interface LedgerEntryRepository extends Repository<LedgerEntry, Long> {
     LedgerEntry save(LedgerEntry entry);
-    List<LedgerEntry> findByAccountIdOrderByCreatedAtAsc(Long accountId);
+    List<LedgerEntry> findByAccountIdOrderByIdAsc(Long accountId);
 }

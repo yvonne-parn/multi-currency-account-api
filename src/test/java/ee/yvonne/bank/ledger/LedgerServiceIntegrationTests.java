@@ -35,7 +35,7 @@ class LedgerServiceIntegrationTests {
         ledgerService.record(account, Currency.EUR, EntryType.CREDIT,
                 new BigDecimal("10.00"), new BigDecimal("20.00"), correlationId);
 
-        List<LedgerEntry> entries = entryRepository.findByAccountIdOrderByCreatedAtAsc(account.getId());
+        List<LedgerEntry> entries = entryRepository.findByAccountIdOrderByIdAsc(account.getId());
         assertThat(entries).hasSize(1);
         LedgerEntry entry = entries.get(0);
         assertThat(entry.getCurrency()).isEqualTo(Currency.EUR);
@@ -54,6 +54,6 @@ class LedgerServiceIntegrationTests {
                 new BigDecimal("10.00"), new BigDecimal("20.00"), UUID.randomUUID()))
                 .isInstanceOf(IllegalTransactionStateException.class);
 
-        assertThat(entryRepository.findByAccountIdOrderByCreatedAtAsc(account.getId())).isEmpty();
+        assertThat(entryRepository.findByAccountIdOrderByIdAsc(account.getId())).isEmpty();
     }
 }

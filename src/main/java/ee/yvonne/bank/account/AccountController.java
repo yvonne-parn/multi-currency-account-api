@@ -11,6 +11,8 @@ import ee.yvonne.bank.account.dto.AccountBalanceResult;
 import ee.yvonne.bank.account.dto.AccountBalancesResult;
 import ee.yvonne.bank.account.dto.DebitRequest;
 import ee.yvonne.bank.account.dto.DepositRequest;
+import ee.yvonne.bank.account.dto.ExchangeRequest;
+import ee.yvonne.bank.account.dto.ExchangeResult;
 import jakarta.validation.Valid;
 
 @RestController
@@ -36,4 +38,9 @@ public class AccountController {
     public AccountBalanceResult debit(@PathVariable String accountNumber, @Valid @RequestBody DebitRequest request) {
         return accountService.debit(accountNumber, request.currency(), request.amount());
     }
-}
+
+    @PostMapping("/{accountNumber}/exchange")
+    public ExchangeResult exchange(@PathVariable String accountNumber, @Valid @RequestBody ExchangeRequest request) {
+        return accountService.exchange(accountNumber, request.fromCurrency(), request.toCurrency(), request.amount());
+    }
+} 
