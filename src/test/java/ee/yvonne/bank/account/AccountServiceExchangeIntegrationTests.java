@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import ee.yvonne.bank.account.dto.ExchangeResult;
 import ee.yvonne.bank.common.AccountNotFoundException;
 import ee.yvonne.bank.common.Currency;
+import ee.yvonne.bank.common.IdempotencyConflictException;
 import ee.yvonne.bank.common.InsufficientFundsException;
 import ee.yvonne.bank.common.InvalidCurrencyExchangeException;
 import ee.yvonne.bank.external.ExternalLoggingClient;
@@ -45,7 +47,7 @@ class AccountServiceExchangeIntegrationTests {
     void successfulExchangeReturnsResultWithCorrectScale(String amount) {
         Account account = testData.accountWith(Currency.EUR, "100.00");
 
-        ExchangeResult result = accountService.exchange(account.getAccountNumber(), Currency.EUR, Currency.USD, new BigDecimal(amount));
+        ExchangeResult result = accountService.exchange(account.getAccountNumber(), Currency.EUR, Currency.USD, new BigDecimal(amount), UUID.randomUUID());
 
         assertThat(result.accountNumber()).isEqualTo(account.getAccountNumber());
         assertThat(result.amountDebited()).isEqualTo("100.00");
@@ -59,7 +61,7 @@ class AccountServiceExchangeIntegrationTests {
     void successfulExchangeUpdatesBalancesAndWritesLedgerRows() {
         Account account = testData.accountWith(Currency.EUR, "100.00");
 
-        accountService.exchange(account.getAccountNumber(), Currency.EUR, Currency.USD, new BigDecimal("10.00"));
+        accountService.exchange(account.getAccountNumber(), Currency.EUR, Currency.USD, new BigDecimal("10.00"), UUID.randomUUID());
 
         AccountBalance eurBalance = testData.balanceOf(account, Currency.EUR).orElseThrow();
         AccountBalance usdBalance = testData.balanceOf(account, Currency.USD).orElseThrow();
@@ -86,7 +88,7 @@ class AccountServiceExchangeIntegrationTests {
 
     @Test
     void exchangeOnUnknownAccountThrows() {
-        assertThatThrownBy(() -> accountService.exchange("UNKNOWN", Currency.EUR, Currency.USD, new BigDecimal("10.00")))
+        assertThatThrownBy(() -> accountService.exchange("UNKNOWN", Currency.EUR, Currency.USD, new BigDecimal("10.00"), UUID.randomUUID()))
                 .isInstanceOf(AccountNotFoundException.class)
                 .hasMessageContaining("UNKNOWN");
     }
@@ -95,7 +97,7 @@ class AccountServiceExchangeIntegrationTests {
     void exchangeFromCurrencyTheAccountNeverHeldIsInsufficientFundsAndCreatesNoBalanceRows() {
         Account account = testData.newAccount();
 
-        assertThatThrownBy(() -> accountService.exchange(account.getAccountNumber(), Currency.USD, Currency.SEK, new BigDecimal("10.00")))
+        assertThatThrownBy(() -> accountService.exchange(account.getAccountNumber(), Currency.USD, Currency.SEK, new BigDecimal("10.00"), UUID.randomUUID()))
                 .isInstanceOf(InsufficientFundsException.class)
                 .hasMessageContaining("USD")
                 .hasMessageContaining(account.getAccountNumber());
@@ -109,7 +111,7 @@ class AccountServiceExchangeIntegrationTests {
     void exchangeFromCurrencyWithInsufficientFundsThrowsAndCreatesNoTargetBalanceRow() {
         Account account = testData.accountWith(Currency.SEK, "10.00");
 
-        assertThatThrownBy(() -> accountService.exchange(account.getAccountNumber(), Currency.SEK, Currency.USD, new BigDecimal("10.50")))
+        assertThatThrownBy(() -> accountService.exchange(account.getAccountNumber(), Currency.SEK, Currency.USD, new BigDecimal("10.50"), UUID.randomUUID()))
                 .isInstanceOf(InsufficientFundsException.class)
                 .hasMessageContaining("SEK")
                 .hasMessageContaining(account.getAccountNumber());
@@ -122,7 +124,7 @@ class AccountServiceExchangeIntegrationTests {
     void exchangeToSameCurrencyThrows() {
         Account account = testData.accountWith(Currency.SEK, "100.00");
 
-        assertThatThrownBy(() -> accountService.exchange(account.getAccountNumber(), Currency.SEK, Currency.SEK, new BigDecimal("10.00")))
+        assertThatThrownBy(() -> accountService.exchange(account.getAccountNumber(), Currency.SEK, Currency.SEK, new BigDecimal("10.00"), UUID.randomUUID()))
                 .isInstanceOf(InvalidCurrencyExchangeException.class)
                 .hasMessageContaining("SEK to SEK");
 
@@ -135,7 +137,7 @@ class AccountServiceExchangeIntegrationTests {
     void rejectsExchangeWhenConvertedAmountRoundsToZero() {
         Account account = testData.accountWith(Currency.SEK, "100.00");
 
-        assertThatThrownBy(() -> accountService.exchange(account.getAccountNumber(), Currency.SEK, Currency.EUR, new BigDecimal("0.01")))
+        assertThatThrownBy(() -> accountService.exchange(account.getAccountNumber(), Currency.SEK, Currency.EUR, new BigDecimal("0.01"), UUID.randomUUID()))
                 .isInstanceOf(InvalidCurrencyExchangeException.class)
                 .hasMessageContaining("too small");
 
@@ -146,9 +148,9 @@ class AccountServiceExchangeIntegrationTests {
     @Test 
     void exchangeWritesLedgerEntriesWithMatchingCorrelationIds() {
         Account account = testData.accountWith(Currency.GBP, "100.00");
-        accountService.deposit(account.getAccountNumber(), Currency.SEK, new BigDecimal("12.00"));
+        accountService.deposit(account.getAccountNumber(), Currency.SEK, new BigDecimal("12.00"), UUID.randomUUID());
 
-        accountService.exchange(account.getAccountNumber(), Currency.GBP, Currency.SEK, new BigDecimal("10.00"));
+        accountService.exchange(account.getAccountNumber(), Currency.GBP, Currency.SEK, new BigDecimal("10.00"), UUID.randomUUID());
 
         List<LedgerEntry> ledgerEntries = testData.ledgerOf(account);
 
@@ -167,5 +169,50 @@ class AccountServiceExchangeIntegrationTests {
         assertThat(credit.getNewBalance()).isEqualByComparingTo("144.35");
 
         assertThat(ledgerEntries.stream().map(l -> l.getCorrelationId()).distinct().toList()).hasSize(3);
+    }
+
+    @Test
+    void sameIdempotencyKeySentTwicePerformsExchangeOnce() {
+        Account account = testData.accountWith(Currency.EUR, "100.00");
+        UUID idempotencyKey = UUID.randomUUID();
+
+        ExchangeResult first = accountService.exchange(account.getAccountNumber(), Currency.EUR, Currency.USD, new BigDecimal("10.00"), idempotencyKey);
+        ExchangeResult second = accountService.exchange(account.getAccountNumber(), Currency.EUR, Currency.USD, new BigDecimal("10.00"), idempotencyKey);
+
+        assertThat(second).isEqualTo(first);
+        assertThat(testData.balanceOf(account, Currency.EUR).orElseThrow().getBalance()).isEqualByComparingTo("90.00");
+        assertThat(testData.balanceOf(account, Currency.USD).orElseThrow().getBalance()).isEqualByComparingTo("11.20");
+        assertThat(testData.ledgerOf(account)).hasSize(3);
+    }
+
+    @Test 
+    void duplicateExchangeReturnsOriginalBalancesAfterLaterActivity() {
+        Account account = testData.accountWith(Currency.EUR, "100.00");
+        UUID idempotencyKey = UUID.randomUUID();
+
+        ExchangeResult first = accountService.exchange(account.getAccountNumber(), Currency.EUR, Currency.USD, new BigDecimal("10.00"), idempotencyKey);
+        accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("5.00"), UUID.randomUUID());
+        ExchangeResult duplicate = accountService.exchange(account.getAccountNumber(), Currency.EUR, Currency.USD, new BigDecimal("10.00"), idempotencyKey);
+
+        assertThat(duplicate).isEqualTo(first);
+        assertThat(duplicate.fromBalanceAfter()).isEqualByComparingTo("90.00");
+        assertThat(duplicate.toBalanceAfter()).isEqualByComparingTo("11.20");
+        assertThat(duplicate.amountCredited()).isEqualByComparingTo("11.20");
+        assertThat(duplicate.amountDebited()).isEqualByComparingTo("10.00");
+        assertThat(testData.ledgerOf(account)).hasSize(4);
+    }
+
+    @Test 
+    void sameKeyWithDifferentTargetCurrencyThrowsIdempotencyConflict() {
+        Account account = testData.accountWith(Currency.EUR, "100.00");
+        UUID idempotencyKey = UUID.randomUUID();
+
+        accountService.exchange(account.getAccountNumber(), Currency.EUR, Currency.USD, new BigDecimal("10.00"), idempotencyKey);
+        assertThatThrownBy(() -> accountService.exchange(account.getAccountNumber(), Currency.EUR, Currency.SEK, new BigDecimal("10.00"), idempotencyKey))
+            .isInstanceOf(IdempotencyConflictException.class)
+            .hasMessageContaining(idempotencyKey.toString());
+
+        assertThat(testData.balanceOf(account, Currency.EUR).orElseThrow().getBalance()).isEqualByComparingTo("90.00");
+        assertThat(testData.ledgerOf(account)).hasSize(3);
     }
 }

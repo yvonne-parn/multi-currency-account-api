@@ -7,14 +7,12 @@ import org.springframework.stereotype.Service;
 
 import ee.yvonne.bank.common.Currency;
 import ee.yvonne.bank.common.InvalidCurrencyExchangeException;
+import lombok.RequiredArgsConstructor;
 
-@Service 
+@Service
+@RequiredArgsConstructor  
 public class ExchangeRateService {
     private final ExchangeProperties properties;
-
-    public ExchangeRateService(ExchangeProperties properties) {
-        this.properties = properties;
-    }
 
     private BigDecimal getRate(Currency currency) {
         return properties.rates().get(currency);

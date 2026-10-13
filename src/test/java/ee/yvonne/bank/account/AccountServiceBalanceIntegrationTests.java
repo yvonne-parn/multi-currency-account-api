@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,8 +37,8 @@ class AccountServiceBalanceIntegrationTests {
     @Test 
     void getBalancesReturnsCorrectResult() {
         Account account = testData.newAccount();
-        accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("10.00"));
-        accountService.deposit(account.getAccountNumber(), Currency.USD, new BigDecimal("20.00"));
+        accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("10.00"), UUID.randomUUID());
+        accountService.deposit(account.getAccountNumber(), Currency.USD, new BigDecimal("20.00"), UUID.randomUUID());
 
         AccountBalancesResult result = accountService.getBalances(account.getAccountNumber());
 

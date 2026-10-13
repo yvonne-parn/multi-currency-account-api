@@ -28,7 +28,7 @@ class AccountTestData {
 
     Account accountWith(Currency currency, String amount) {
         Account account = newAccount();
-        accountService.deposit(account.getAccountNumber(), currency, new BigDecimal(amount));
+        accountService.deposit(account.getAccountNumber(), currency, new BigDecimal(amount), UUID.randomUUID());
         return account;
     }
 
