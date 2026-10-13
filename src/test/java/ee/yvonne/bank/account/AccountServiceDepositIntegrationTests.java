@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -20,6 +22,7 @@ import ee.yvonne.bank.common.AccountNotFoundException;
 import ee.yvonne.bank.common.Currency;
 import ee.yvonne.bank.common.IdempotencyConflictException;
 import ee.yvonne.bank.external.ExternalLoggingClient;
+import ee.yvonne.bank.idempotency.IdempotencyService;
 import ee.yvonne.bank.ledger.EntryType;
 import ee.yvonne.bank.ledger.LedgerEntry;
 import ee.yvonne.bank.ledger.LedgerEntryRepository;
@@ -30,6 +33,7 @@ class AccountServiceDepositIntegrationTests {
     @Autowired private AccountRepository accountRepository;
     @Autowired private AccountBalanceRepository balanceRepository;
     @Autowired private LedgerEntryRepository ledgerRepository;
+    @Autowired private IdempotencyService idempotencyService;
     @MockitoBean ExternalLoggingClient externalLoggingClient;
     private AccountTestData testData;
 
@@ -164,5 +168,30 @@ class AccountServiceDepositIntegrationTests {
         assertThat(testData.balanceOf(other, Currency.EUR).orElseThrow().getBalance()).isEqualByComparingTo("10.00");
         assertThat(testData.ledgerOf(account)).hasSize(1);
         assertThat(testData.ledgerOf(other)).hasSize(1);
+    }
+
+    @Test
+    void idempotencyKeyIsForgottenAfterExpiryAndTheRetryIsANewRequest() {
+        Account account = testData.newAccount();
+        UUID key = UUID.randomUUID();
+        accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("10.00"), key);
+
+        idempotencyService.deleteExpired(Instant.now().plusSeconds(60));
+
+        AccountBalanceResult retry = accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("10.00"), key);
+        assertThat(retry.balance()).isEqualByComparingTo("20.00");
+    }
+
+    @Test
+    void idempotencyKeyWithinRetentionStillDeduplicates() {
+        Account account = testData.newAccount();
+        UUID key = UUID.randomUUID();
+        accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("10.00"), key);
+
+        int deleted = idempotencyService.deleteExpired(Instant.now().minus(Duration.ofHours(1)));
+        assertThat(deleted).isEqualTo(0);
+
+        AccountBalanceResult retry = accountService.deposit(account.getAccountNumber(), Currency.EUR, new BigDecimal("10.00"), key);
+        assertThat(retry.balance()).isEqualByComparingTo("10.00");
     }
 }

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -55,5 +56,24 @@ class IdempotencyRecordRepositoryTests {
         assertThat(idempotencyRepository.findByAccountIdAndIdempotencyKey(account.getId(), key)).isPresent();
         assertThat(idempotencyRepository.findByAccountIdAndIdempotencyKey(other.getId(), key)).isEmpty();
         assertThat(idempotencyRepository.findByAccountIdAndIdempotencyKey(account.getId(), UUID.randomUUID())).isEmpty();
+    }
+
+    @Test
+    void deleteCreatedBeforeRemovesOnlyOlderRecords() throws InterruptedException {
+        Account account = accountRepository.save(new Account("TEST-" + UUID.randomUUID(), "Test Holder"));
+        UUID oldKey = UUID.randomUUID();
+        UUID newKey = UUID.randomUUID();
+
+        idempotencyRepository.saveAndFlush(new IdempotencyRecord(account, oldKey, IdempotencyRequestContent.deposit(new BigDecimal("1.00"), Currency.EUR), UUID.randomUUID()));
+        Thread.sleep(20);
+        Instant cutoff = Instant.now();
+        Thread.sleep(20);
+        idempotencyRepository.saveAndFlush(new IdempotencyRecord(account, newKey, IdempotencyRequestContent.deposit(new BigDecimal("2.00"), Currency.EUR), UUID.randomUUID()));
+
+        int deleted = idempotencyRepository.deleteCreatedBefore(cutoff);
+
+        assertThat(deleted).isEqualTo(1);
+        assertThat(idempotencyRepository.findByAccountIdAndIdempotencyKey(account.getId(), oldKey)).isEmpty();
+        assertThat(idempotencyRepository.findByAccountIdAndIdempotencyKey(account.getId(), newKey)).isPresent();
     }
 }
