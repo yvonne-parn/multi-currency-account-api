@@ -20,7 +20,7 @@ public class IdempotencyCleanupJob {
         this.retention = retention;
     }
 
-    @Scheduled(cron = "${idempotency.cleanup-interval}")
+    @Scheduled(cron = "${idempotency.cleanup-cron}")
     void cleanUp() {
         int deleted = idempotencyService.deleteExpired(Instant.now().minus(retention));
         if (deleted > 0) {
