@@ -127,7 +127,7 @@ The default external logging endpoint returns HTTP 200. To test debit failure ha
 
 - **Idempotency.** All POST requests require an `Idempotency-Key` header containing a UUID that's unique per account. Repeating a request with the same key and payload returns the original result without processing the operation again. Reusing a key with different request content returns `409 Conflict`. Idempotency records are stored in the database and expire after the configured retention period. Duplicate requests are checked inside the transaction, under the account lock, to prevent concurrent duplicate operations. Debit requests also perform an initial check before the external logging call to avoid unnecessary calls.
 
-## Known limitations and next steps
+## Known limitations
 
 - No authentication or authorization.
 - Fixed exchange rates; no live exchange rate provider.
